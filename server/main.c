@@ -45,16 +45,59 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
 
+int get_socket(char *addr, struct addrinfo *hints)
+{
+    int sockfd;
+    struct addrinfo *servinfo, *p;
+    int rv;
+
+    if ((rv = getaddrinfo(addr, PORT, &hints, &servinfo)) != 0)
+    {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        exit(1);
+    }
+
+    // loop through all the results and bind to the first we can
+    for (p = servinfo; p != NULL; p = p->ai_next)
+    {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+                             p->ai_protocol)) == -1)
+        {
+            perror("server: socket");
+            continue;
+        }
+
+        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1)
+        {
+            close(sockfd);
+            perror("server: bind");
+            continue;
+        }
+
+        break;
+    }
+
+    freeaddrinfo(servinfo); // all done with this structure
+
+    if (p == NULL)
+    {
+        fprintf(stderr, "server: failed to bind\n");
+        exit(1);
+    }
+
+    return sockfd;
+}
+
 int main(void)
 {
     int sockfd, new_fd; // listen on sock_fd, new connection on new_fd
-    struct addrinfo hints, *servinfo, *p;
+    struct addrinfo hints;
     struct sockaddr_storage their_addr; // connector's address information
     socklen_t sin_size;
     struct sigaction sa;
     int yes = 1;
     char s[INET6_ADDRSTRLEN];
-    int rv;
+    int numbytes;
 
     // https://www.delftstack.com/howto/c/mkdir-in-c/
     int ret = mkdir("data", S_IRWXU);
@@ -82,98 +125,39 @@ int main(void)
     
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
 
-    if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0)
-    {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        return 1;
-    }
+    sockfd = get_socket(NULL, hints);
 
-    // loop through all the results and bind to the first we can
-    for (p = servinfo; p != NULL; p = p->ai_next)
-    {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
-                             p->ai_protocol)) == -1)
-        {
-            perror("server: socket");
-            continue;
-        }
+    hints.ai_flags = NULL;
 
-        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
-                       sizeof(int)) == -1)
-        {
-            perror("setsockopt");
-            exit(1);
-        }
-
-        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1)
-        {
-            close(sockfd);
-            perror("server: bind");
-            continue;
-        }
-
-        break;
-    }
-
-    freeaddrinfo(servinfo); // all done with this structure
-
-    if (p == NULL)
-    {
-        fprintf(stderr, "server: failed to bind\n");
-        exit(1);
-    }
-
-    if (listen(sockfd, BACKLOG) == -1)
-    {
-        perror("listen");
-        exit(1);
-    }
-
-    sa.sa_handler = sigchld_handler; // reap all dead processes
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if (sigaction(SIGCHLD, &sa, NULL) == -1)
-    {
-        perror("sigaction");
-        exit(1);
-    }
-
-    printf("server: waiting for connections...\n");
+    printf("server: waiting for datagrams...\n");
 
     while (1)
     {
-        // main accept() loop
-        sin_size = sizeof their_addr;
-        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
-        if (new_fd == -1)
-        {
-            perror("accept");
-            continue;
+        // main loop
+        addr_len = sizeof their_addr;
+        if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
+            (struct sockaddr *)&their_addr, &addr_len)) == -1) {
+            perror("recvfrom");
+            exit(1);
         }
 
-        inet_ntop(their_addr.ss_family,
-                  get_in_addr((struct sockaddr *)&their_addr),
-                  s, sizeof s);
-        printf("server: got connection from %s\n", s);
+        inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
 
-        if (!fork())
-        {
-            // this is the child process
-            close(sockfd); // child doesn't need the listener
+        printf("listener: got packet from %s\n", s);
 
-            // the server only handles one request per connection.
-            // if the user wants to make more requests it should initiate other connections.
-            handle_request(new_fd);
+        // create new socket to send response messages
+        new_fd = get_socket(s, &hints);
 
-            close(new_fd);
-            exit(0);
-        }
-        close(new_fd); // parent doesn't need this
+        // the server only handles one request per datagram.
+        // if the user wants to make more requests it should initiate other connections.
+        handle_request(new_fd, buf, numbytes, their_addr, addr_len);
     }
+    
+    close(sock_fd);
 
     return 0;
 }
