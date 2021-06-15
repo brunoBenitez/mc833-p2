@@ -13,7 +13,7 @@
 #include <sys/socket.h>
 #include "comm.h"
 #include "utils.h"
-#include <time.h> # Usar struct timespec
+#include <time.h>
 
 #include <arpa/inet.h>
 
@@ -46,10 +46,12 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 {
 	int sockfd;
 	struct addrinfo hints, *servinfo, *p;
+	struct sockaddr_storage their_addr; // sender's address information
+    socklen_t addr_len;
 	char buf[MAXDATASIZE];
 	int rv;
 	int numbytes;
-	struct timespec timeout;
+	struct timeval timeout;
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET; 
@@ -57,7 +59,7 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 
 	if ((rv = getaddrinfo(server_ip, PORT, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-		return 1;
+		return NULL;
 	}
 
 	// loop through all the results and make a socket
@@ -73,25 +75,13 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 
 	if (p == NULL) {
 		fprintf(stderr, "talker: failed to create socket\n");
-		return 2;
+		return NULL;
 	}
-
-	/* //Send do Beejs
-	if ((numbytes = sendto(sockfd, buf, strlen(buf), 0,
-			 p->ai_addr, p->ai_addrlen)) == -1) {
-		perror("talker: sendto");
-		exit(1);
-	}
-
-	freeaddrinfo(servinfo);
-
-	printf("talker: sent %d bytes to %s\n", numbytes, server_ip);
-	close(sockfd);*/
 
 	// Definir timeout
 
-	timeout.tv_sec = 0;
-  	timeout.tv_nsec = 100000000;
+	timeout.tv_sec = 1;
+  	timeout.tv_usec = 0;
   	setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
 	// Envio de comandos
@@ -107,23 +97,11 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 	prof_buf.n_experiencia = htonl(prof_buf.n_experiencia);
 	memcpy(buf+protocol_bytes, &prof_buf, profile_bytes);
 
-	/* // TCP
-	int sent_bytes;
-	int total_sent = 0;
-	do{
-		if ((sent_bytes = send(sockfd, buf+total_sent, protocol_bytes + profile_bytes - total_sent, 0)) == -1){
-			perror("send");
-			return NULL;
-		} else{
-			total_sent += sent_bytes;
-		}
-	} while(total_sent < profile_bytes + protocol_bytes);*/
-
 	// Enviar comandos por UDP
 
 	int sent_bytes = 0;
 	if ((sent_bytes = sendto(sockfd, (const char *)buf, MAXDATASIZE, MSG_CONFIRM, 
-		(struct sockaddr*) NULL, sizeof(struct sockaddr))) == -1) // Arrumar endereco do servidor
+		p->ai_addr, p->ai_addrlen)) == -1)
   	{
 		perror("ERROR: sendto");
 		exit(1);
@@ -135,16 +113,14 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 	}
 
 	// Recebimento da resposta inicial (ProtocolData)
-	int total_recv = 0;
+	if ((numbytes = recvfrom(sockfd, buf, protocol_bytes, MSG_WAITALL, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
+		if (errno == EAGAIN)
+			printf("Tempo esgotado esperando receber resposta do servidor");
+		else
+			perror("recv protocol");
+		return NULL;
+	}
 
-	do{
-		if ((numbytes = recv(sockfd, buf+total_recv, protocol_bytes-total_recv, 0)) == -1) {
-	    	perror("recv");
-	    	return NULL;
-		} else{
-			total_recv += numbytes;
-		}
-	} while(total_recv < protocol_bytes);
 	
 	ProtocolData resposta;
 	UserProfile *profile_list;
@@ -154,8 +130,10 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 	resposta.op = ntohl(resposta.op);
 	resposta.profiles_num = ntohl(resposta.profiles_num);
 	
+	// fprintf(stderr, "received data: %d bytes\n\top: %d\n\tn_profs: %d\n", numbytes, resposta.op, resposta.profiles_num);
+	
 	// Se nao for READ, capturar se houve sucesso ou erro na operacao, e encerrar
-	if (comando.op != READ || resposta.op == ERROR)
+	if (comando.op != READ || resposta.op != SUCCESS)
 	{
 		*n_profiles = resposta.op; // ERROR ou SUCCES neste caso
 		close(sockfd);
@@ -164,77 +142,30 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 
 	// Sabemos quantos profiles vao chegar atraves de resposta.profiles_num
 	profile_list = (UserProfile*)malloc(profile_bytes * resposta.profiles_num); // Alocar a lista
-	*n_profiles = resposta.profiles_num;
 
 	// Receber N Profiles
+	int total_recvd = 0;
 	for (size_t i = 0; i < resposta.profiles_num; i++)
 	{
-		total_recv = 0;
-		do{
-			if ((numbytes = recv(sockfd, buf+total_recv, profile_bytes-total_recv, 0)) == -1) {
-	    		perror("recv");
-	    		return NULL;
-			} else{
-				total_recv += numbytes;
-			}
-		} while(total_recv < profile_bytes);
+		if ((numbytes = recvfrom(sockfd, buf, profile_bytes, MSG_WAITALL, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
+			if (errno != EAGAIN)
+				perror("recv users");
+			continue;
+		}
 
 		// Transferir para a lista
-		memcpy(&(profile_list[i]), buf, profile_bytes);
-		profile_list[i].ano_formatura = ntohl(profile_list[i].ano_formatura);
-		profile_list[i].n_experiencia = ntohl(profile_list[i].n_experiencia);
+		memcpy(&(profile_list[total_recvd]), buf, profile_bytes);
+		profile_list[total_recvd].ano_formatura = ntohl(profile_list[total_recvd].ano_formatura);
+		profile_list[total_recvd].n_experiencia = ntohl(profile_list[total_recvd].n_experiencia);
+		total_recvd++;
 	}
+
+	if (total_recvd < resposta.profiles_num)
+		printf("foram perdidos %d perfis, por favor tente novamente\n", resposta.profiles_num - total_recvd);
+
+	*n_profiles = total_recvd;
 
 	close(sockfd);
 
 	return profile_list;
-}
-
-/*Exemplos*/
-
-int receive_data(int socket, char *buffer)
-{
-  buffer[0] = 'x';
-  while (buffer[0] != '\0')
-  { // print all messages
-    if (read_udp(socket, buffer, servaddr, &len) < 0)
-      return -1;
-    printf("%s\n", buffer);
-  }
-
-  return 0;
-}
-
-int read_udp(int socket, char *buffer, sap sender, int *sender_len)
-{
-  int r_val, total = 0;
-
-  while (total != BUFFLEN)
-  {
-    if ((r_val = recvfrom(socket, &buffer[total], (BUFFLEN - total), MSG_WAITALL,
-                          sender, sender_len)) == -1)
-    {
-      if (errno != 11)
-      {
-        printf("ERROR: message might be lost/corrupted.\n");
-        return -1;
-      }
-      else
-      {
-        printf("\nCLIENT: reached timeout (package might have been lost).\n");
-        return -1;
-      }
-    }
-    else if (r_val == 0)
-    { // if client not responding
-      printf("ERROR: pairing socket is closed\n");
-      return -1;
-    }
-    else
-    {
-      total += r_val;
-    }
-  }
-
-  return total;
 }

@@ -1,18 +1,24 @@
-#include "server.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <signal.h>
 
 #include "comm.h"
 #include "database.h"
 
+#include "server.h"
+
 static void send_success(int sock_fd, struct sockaddr *send_addr, socklen_t addr_len)
 {
     ProtocolData data;
-    size_t rv, sent_size = 0;
+    size_t rv;
     data.op = htonl(SUCCESS);
     data.profiles_num = 0;
     rv = sendto(sock_fd, &data, sizeof(ProtocolData), 0, send_addr, addr_len);
@@ -26,7 +32,7 @@ static void send_success(int sock_fd, struct sockaddr *send_addr, socklen_t addr
 static void send_error(int sock_fd, struct sockaddr *send_addr, socklen_t addr_len)
 {
     ProtocolData data;
-    size_t rv, sent_size = 0;
+    size_t rv;
     data.op = htonl(ERROR);
     data.profiles_num = 0;
     rv = sendto(sock_fd, &data, sizeof(ProtocolData), 0, send_addr, addr_len);
@@ -39,34 +45,30 @@ static void send_error(int sock_fd, struct sockaddr *send_addr, socklen_t addr_l
 
 static void send_profiles(int sock_fd, UserProfile *profs, int n_profs, struct sockaddr *send_addr, socklen_t addr_len)
 {
-    size_t send_size = sizeof(ProtocolData) + n_profs * sizeof(UserProfile);
-    uint8_t *send_buf = malloc(send_size);
+    size_t rv;
     ProtocolData data;
     data.op = htonl(SUCCESS);
     data.profiles_num = htonl(n_profs);
 
-    memcpy(send_buf, &data, sizeof(ProtocolData));
-    memcpy(send_buf + sizeof(ProtocolData), profs, n_profs * sizeof(UserProfile));
-
-    size_t rv, sent_size = 0;
-    rv = sendto(sock_fd, send_buf, send_size, 0, send_addr, addr_len);
+    rv = sendto(sock_fd, &data, sizeof(ProtocolData), 0, send_addr, addr_len);
     if (rv == -1)
-        perror("send_profiles");
+        perror("send_profiles, data");
 
-    if (rv == send_size)
-        printf("%u profiles sent successfully!\n", n_profs);
+    for (int i = 0; i < n_profs; i++)
+    {
+        rv = sendto(sock_fd, &profs[i], sizeof(UserProfile), 0, send_addr, addr_len);
+        if (rv == -1)
+            perror("send_profiles");
+    }
 
-    free(send_buf);
+    printf("sent %d profiles!\n", n_profs);
 }
 
-void handle_request(int sock_fd, void *recvd_datagram, size_t numBytes, struct sockaddr *send_addr, socklen_t addr_len);
+void handle_request(int sock_fd, uint8_t *recvd_datagram, size_t numBytes, struct sockaddr *send_addr, socklen_t addr_len)
 {
-    size_t recv_size, recvd_size, rv;
     int n_profs;
     ProtocolData *req_data;
     UserProfile *profile_buf;
-
-    recv_size = sizeof(ProtocolData) + sizeof(UserProfile);
 
     req_data = (ProtocolData *)recvd_datagram;
     profile_buf = (UserProfile *)(recvd_datagram + sizeof(ProtocolData));

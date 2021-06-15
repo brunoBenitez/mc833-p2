@@ -17,11 +17,14 @@
 #include <sys/stat.h>
 #include <signal.h>
 
+#include "comm.h"
 #include "server.h"
 
 #define PORT "3490" // the port users will be connecting to
 
-#define BACKLOG 10 // how many pending connections queue will hold
+
+#define MAXBUFLEN (sizeof(ProtocolData) + sizeof(UserProfile))
+
 
 void sigchld_handler(int s)
 {
@@ -51,10 +54,10 @@ int get_socket(char *addr, struct addrinfo *hints)
     struct addrinfo *servinfo, *p;
     int rv;
 
-    if ((rv = getaddrinfo(addr, PORT, &hints, &servinfo)) != 0)
+    if ((rv = getaddrinfo(addr, PORT, hints, &servinfo)) != 0)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        exit(1);
+        return -1;
     }
 
     // loop through all the results and bind to the first we can
@@ -82,7 +85,7 @@ int get_socket(char *addr, struct addrinfo *hints)
     if (p == NULL)
     {
         fprintf(stderr, "server: failed to bind\n");
-        exit(1);
+        return -1;
     }
 
     return sockfd;
@@ -90,13 +93,12 @@ int get_socket(char *addr, struct addrinfo *hints)
 
 int main(void)
 {
-    int sockfd, new_fd; // listen on sock_fd, new connection on new_fd
+    int sockfd; // listen on sockfd
     struct addrinfo hints;
-    struct sockaddr_storage their_addr; // connector's address information
-    socklen_t sin_size;
-    struct sigaction sa;
-    int yes = 1;
+    struct sockaddr_storage their_addr; // client's address information
+    socklen_t addr_len;
     char s[INET6_ADDRSTRLEN];
+    uint8_t buf[MAXBUFLEN];
     int numbytes;
 
     // https://www.delftstack.com/howto/c/mkdir-in-c/
@@ -129,17 +131,19 @@ int main(void)
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
 
-    sockfd = get_socket(NULL, hints);
+    sockfd = get_socket(NULL, &hints);
+    if (sockfd == -1)
+        exit(1);
 
-    hints.ai_flags = NULL;
+    hints.ai_flags = 0;
 
-    printf("server: waiting for datagrams...\n");
 
     while (1)
     {
+        printf("server: waiting for datagrams...\n");
         // main loop
         addr_len = sizeof their_addr;
-        if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
+        if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN, 0,
             (struct sockaddr *)&their_addr, &addr_len)) == -1) {
             perror("recvfrom");
             exit(1);
@@ -149,15 +153,12 @@ int main(void)
 
         printf("listener: got packet from %s\n", s);
 
-        // create new socket to send response messages
-        new_fd = get_socket(s, &hints);
-
         // the server only handles one request per datagram.
         // if the user wants to make more requests it should initiate other connections.
-        handle_request(new_fd, buf, numbytes, their_addr, addr_len);
+        handle_request(sockfd, buf, numbytes, (struct sockaddr*)&their_addr, addr_len);
     }
     
-    close(sock_fd);
+    close(sockfd);
 
     return 0;
 }
