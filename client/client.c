@@ -115,7 +115,10 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 	// Recebimento da resposta inicial (ProtocolData)
 	if ((numbytes = recvfrom(sockfd, buf, protocol_bytes, MSG_WAITALL, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
 		if (errno == EAGAIN)
-			printf("Tempo esgotado esperando receber resposta do servidor");
+        {
+			printf("Tempo esgotado esperando receber resposta do servidor\n");
+            return NULL;
+        }
 		else
 			perror("recv protocol");
 		return NULL;

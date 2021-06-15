@@ -57,6 +57,8 @@ void listPeopleByMajor(void)
     comando.op = READ;
     fgetss(input.formacao, MAX_CHARS, stdin);
     output = client_connect(comando, input, &n_profiles);
+    if (output == NULL)
+        return;
 
     for (int i = 0; i < n_profiles; i++)
     {
@@ -86,6 +88,8 @@ void listPeopleBySkill(void)
     comando.op = READ;
     fgetss(input.habilidades, MAX_CHARS, stdin);
     output = client_connect(comando, input, &n_profiles);
+    if (output == NULL)
+        return;
 
     for (int i = 0; i < n_profiles; i++)
     {
@@ -120,6 +124,8 @@ void listPeopleByGradYear(void)
     }
 
     output = client_connect(comando, input, &n_profiles);
+    if (output == NULL)
+        return;
 
     for (int i = 0; i < n_profiles; i++)
     {
@@ -162,6 +168,8 @@ void listAll(void)
     printf("Voce escolheu *LISTAR TODOS PERFIS*\n\n");
     comando.op = READ;
     output = client_connect(comando, input, &n_profiles);
+    if (output == NULL)
+        return;
 
     for (int i = 0; i < n_profiles; i++)
     {
@@ -221,6 +229,8 @@ void retrieveProfileInfo(void)
     fgetss(input.email, MAX_CHARS, stdin);
     comando.op = READ;
     output = client_connect(comando, input, &n_profiles);
+    if (output == NULL)
+        return;
 
     for (int i = 0; i < n_profiles; i++)
     {
