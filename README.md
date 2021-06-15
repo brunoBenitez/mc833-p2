@@ -1,4 +1,4 @@
-# mc833-p1
+# mc833-p2
 Segundo trabalho da disciplina MC833 - 1s2021 - Programação de Redes de Computadores. Aplicação cliente servidor no estilo "Linked In" utilizando TCP.
 
 Para executar as aplicações basta executar o comando `make` na linha de comando a partir da pasta raíz e então executar __server.x__ e __client.x__ em seus respectivos ambientes
