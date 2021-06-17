@@ -28,16 +28,6 @@ void set_server_ip(void){
 	return;
 }
 
-// get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa)
-{
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
-
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
 UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_profiles)
 {
 	int sockfd;
@@ -76,7 +66,7 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 
 	// Definir timeout
 
-	timeout.tv_sec = 1;
+	timeout.tv_sec = 2;
   	timeout.tv_usec = 0;
   	setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
