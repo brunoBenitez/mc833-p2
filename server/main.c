@@ -1,8 +1,3 @@
-/*
-** main.c -- a stream socket server
-** code from http://beej.us/guide/bgnet/html/
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -24,18 +19,6 @@
 
 
 #define MAXBUFLEN (sizeof(ProtocolData) + sizeof(UserProfile))
-
-
-void sigchld_handler(int s)
-{
-    // waitpid() might overwrite errno, so we save and restore it:
-    int saved_errno = errno;
-
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-        ;
-
-    errno = saved_errno;
-}
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)

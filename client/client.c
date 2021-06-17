@@ -1,7 +1,3 @@
-/*
-** client.c -- a stream socket client demo
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -132,8 +128,6 @@ UserProfile *client_connect(ProtocolData comando, UserProfile prof_buf, int *n_p
 	memcpy(&resposta, buf, protocol_bytes);
 	resposta.op = ntohl(resposta.op);
 	resposta.profiles_num = ntohl(resposta.profiles_num);
-	
-	// fprintf(stderr, "received data: %d bytes\n\top: %d\n\tn_profs: %d\n", numbytes, resposta.op, resposta.profiles_num);
 	
 	// Se nao for READ, capturar se houve sucesso ou erro na operacao, e encerrar
 	if (comando.op != READ || resposta.op != SUCCESS)
